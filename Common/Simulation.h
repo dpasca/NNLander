@@ -9,6 +9,7 @@
 
 #include "raylib.h"
 #include "Utils.h" // For the random number generation
+#include "Eigen/Dense"
 
 //==================================================================
 // General simulation parameters (screen size, gravity, etc.)
@@ -234,6 +235,7 @@ public:
 // Simulation class
 //==================================================================
 using GetBrainActionsFnT = std::function<void(const float*, float*)>;
+using GetBrainActionsAsVecFnT = std::function<void(const Eigen::Vector<float, SIM_BRAINSTATE_N>&, Eigen::Vector<float, SIM_BRAINACTION_N>&)>;
 
 class Simulation
 {
@@ -284,6 +286,42 @@ public:
         mLander.mControl_UpThrust = actions[SIM_BRAINACTION_UP] > 0.5f;
         mLander.mControl_LeftThrust = actions[SIM_BRAINACTION_LEFT] > 0.5f;
         mLander.mControl_RightThrust = actions[SIM_BRAINACTION_RIGHT] > 0.5f;
+
+        mLander.AnimLander(); // Update lander
+        mLandingPad.CheckPadLanding(mLander); // Check for landing
+        mTerrain.CheckTerrainCollision(mLander); // Check for terrain collision
+    }
+
+    // Execute one simulation step
+    void AnimateSim(const GetBrainActionsAsVecFnT& getBrainActions)
+    {
+        // Skip the simulation if lander is not active
+        if (mLander.mStateIsCrashed || mLander.mStateIsLanded)
+            return;
+
+        mElapsedTimeS += mTimeStepS;
+
+        // 1. Convert the simulation variables to a simple/flat array for the brain input
+        Eigen::Vector<float, SIM_BRAINSTATE_N> simState {};
+        simState(SIM_BRAINSTATE_LANDER_X) = mLander.mPos.x;
+        simState(SIM_BRAINSTATE_LANDER_Y) = mLander.mPos.y;
+        simState(SIM_BRAINSTATE_LANDER_VX) = mLander.mVel.x;
+        simState(SIM_BRAINSTATE_LANDER_VY) = mLander.mVel.y;
+        simState(SIM_BRAINSTATE_LANDER_FUEL) = mLander.mFuel;
+        simState(SIM_BRAINSTATE_LANDER_STATE_LANDED) = mLander.mStateIsLanded;
+        simState(SIM_BRAINSTATE_LANDER_STATE_CRASHED) = mLander.mStateIsCrashed;
+        simState(SIM_BRAINSTATE_PAD_X) = mLandingPad.mPos.x;
+        simState(SIM_BRAINSTATE_PAD_Y) = mLandingPad.mPos.y;
+        simState(SIM_BRAINSTATE_PAD_WIDTH) = mLandingPad.mPadWidth;
+
+        // 2. Get the brain actions
+        Eigen::Vector<float, SIM_BRAINACTION_N> actions {};
+        getBrainActions(simState, actions);
+
+        // 3. Convert the brain actions to the simulation variables
+        mLander.mControl_UpThrust = actions(SIM_BRAINACTION_UP) > 0.5f;
+        mLander.mControl_LeftThrust = actions(SIM_BRAINACTION_LEFT) > 0.5f;
+        mLander.mControl_RightThrust = actions(SIM_BRAINACTION_RIGHT) > 0.5f;
 
         mLander.AnimLander(); // Update lander
         mLandingPad.CheckPadLanding(mLander); // Check for landing
